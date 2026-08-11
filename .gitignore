@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+*.log
+.DS_Store
+# sidecar 运行时数据（逐对话 JSON）
+data/
+temp/.env
+

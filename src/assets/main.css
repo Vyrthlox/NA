@@ -1,0 +1,291 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+}
+
+/* ===== 可交互 Logo：信号干扰效果（鼠标触碰时触发） ===== */
+.na-logo {
+  position: relative;
+  user-select: none;
+}
+.na-logo-main,
+.na-logo-slice {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.na-logo-slice {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.na-logo-noise {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
+.na-logo:hover .na-logo-main {
+  animation: na-jitter 0.45s steps(3, end) infinite;
+}
+.na-logo:hover .na-logo-slice-a {
+  opacity: 0.8;
+  animation: na-glitch-a 0.5s steps(2, end) infinite;
+}
+.na-logo:hover .na-logo-slice-b {
+  opacity: 0.8;
+  animation: na-glitch-b 0.42s steps(2, end) infinite;
+}
+.na-logo:hover .na-logo-noise {
+  opacity: 0.55;
+  animation: na-noise 0.3s steps(3, end) infinite;
+}
+
+@keyframes na-jitter {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-1px, 1px);
+  }
+  50% {
+    transform: translate(1px, -1px);
+  }
+  75% {
+    transform: translate(-2px, 0);
+  }
+}
+@keyframes na-glitch-a {
+  0% {
+    clip-path: inset(0 0 78% 0);
+    transform: translate(-6px, 0);
+  }
+  25% {
+    clip-path: inset(32% 0 42% 0);
+    transform: translate(5px, 0);
+  }
+  50% {
+    clip-path: inset(62% 0 8% 0);
+    transform: translate(-4px, 0);
+  }
+  75% {
+    clip-path: inset(8% 0 72% 0);
+    transform: translate(6px, 0);
+  }
+  100% {
+    clip-path: inset(46% 0 28% 0);
+    transform: translate(-3px, 0);
+  }
+}
+@keyframes na-glitch-b {
+  0% {
+    clip-path: inset(52% 0 22% 0);
+    transform: translate(5px, 0);
+  }
+  25% {
+    clip-path: inset(12% 0 62% 0);
+    transform: translate(-6px, 0);
+  }
+  50% {
+    clip-path: inset(70% 0 4% 0);
+    transform: translate(4px, 0);
+  }
+  75% {
+    clip-path: inset(24% 0 52% 0);
+    transform: translate(-5px, 0);
+  }
+  100% {
+    clip-path: inset(2% 0 82% 0);
+    transform: translate(6px, 0);
+  }
+}
+@keyframes na-noise {
+  0%,
+  100% {
+    background-position: 0 0;
+  }
+  25% {
+    background-position: -12px 8px;
+  }
+  50% {
+    background-position: 9px -10px;
+  }
+  75% {
+    background-position: -6px -5px;
+  }
+}
+
+/* 用户偏好减少动效时关闭信号干扰 */
+@media (prefers-reduced-motion: reduce) {
+  .na-logo:hover .na-logo-main,
+  .na-logo:hover .na-logo-slice-a,
+  .na-logo:hover .na-logo-slice-b,
+  .na-logo:hover .na-logo-noise {
+    animation: none;
+  }
+}
+
+/* ===== AI 思考中：线框正方体（沿体对角线旋转 + 上下小幅跳动） ===== */
+.na-thinking-cube-bounce {
+  perspective: 260px;
+  animation: na-cube-bounce 1.1s ease-in-out infinite;
+}
+.na-thinking-cube-spin {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  transform-style: preserve-3d;
+  animation: na-cube-spin 2.6s linear infinite;
+}
+.na-thinking-cube-face {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid rgb(34 197 94 / 0.8);
+  background: rgb(34 197 94 / 0.04);
+}
+.na-thinking-cube-face-front {
+  transform: translateZ(12px);
+}
+.na-thinking-cube-face-back {
+  transform: rotateY(180deg) translateZ(12px);
+}
+.na-thinking-cube-face-right {
+  transform: rotateY(90deg) translateZ(12px);
+}
+.na-thinking-cube-face-left {
+  transform: rotateY(-90deg) translateZ(12px);
+}
+.na-thinking-cube-face-top {
+  transform: rotateX(90deg) translateZ(12px);
+}
+.na-thinking-cube-face-bottom {
+  transform: rotateX(-90deg) translateZ(12px);
+}
+
+@keyframes na-cube-spin {
+  from {
+    transform: rotate3d(1, 1, 1, 0deg);
+  }
+  to {
+    transform: rotate3d(1, 1, 1, 360deg);
+  }
+}
+@keyframes na-cube-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+/* 减少动效偏好下冻结动画，保留静态立方体轮廓 */
+@media (prefers-reduced-motion: reduce) {
+  .na-thinking-cube-bounce,
+  .na-thinking-cube-spin {
+    animation: none;
+  }
+}
+
+/* ===== 富文本笔记编辑器（TipTap .ProseMirror）内容排版 ===== */
+.na-editor .ProseMirror {
+  outline: none;
+  min-height: 55vh;
+  font-size: 15px;
+  line-height: 1.8;
+  color: #374151;
+  caret-color: #16a34a;
+}
+.na-editor .ProseMirror p {
+  margin: 0.35em 0;
+}
+.na-editor .ProseMirror h1 {
+  font-size: 1.7em;
+  font-weight: 700;
+  margin: 0.9em 0 0.5em;
+  color: #111827;
+}
+.na-editor .ProseMirror h2 {
+  font-size: 1.4em;
+  font-weight: 700;
+  margin: 0.9em 0 0.5em;
+  color: #111827;
+}
+.na-editor .ProseMirror h3 {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  color: #111827;
+}
+.na-editor .ProseMirror ul,
+.na-editor .ProseMirror ol {
+  padding-left: 1.5em;
+  margin: 0.35em 0;
+}
+.na-editor .ProseMirror ul {
+  list-style: disc;
+}
+.na-editor .ProseMirror ol {
+  list-style: decimal;
+}
+.na-editor .ProseMirror li {
+  margin: 0.2em 0;
+}
+.na-editor .ProseMirror blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 0.9em;
+  margin: 0.6em 0;
+  color: #6b7280;
+}
+.na-editor .ProseMirror code {
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.na-editor .ProseMirror pre {
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+.na-editor .ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+}
+.na-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1em 0;
+}
+/* Placeholder 扩展：空文档首行显示占位提示 */
+.na-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: #9ca3af;
+}
