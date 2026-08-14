@@ -6,4 +6,4 @@ dist/
 # sidecar 运行时数据（逐对话 JSON）
 data/
 temp/.env
-
+.claude/

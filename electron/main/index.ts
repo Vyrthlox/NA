@@ -143,6 +143,79 @@ app.whenReady().then(() => {
     return gateway.deleteConversation(id)
   })
 
+  // 知识库 RAG：状态 / KB CRUD / 文件上传删除 / 检索问答（token 留在主进程，renderer 经 IPC 调）
+  ipcMain.handle('knowledge:status', () => gateway.getKnowledgeStatus())
+  ipcMain.handle('knowledge:reindex', (_event, payload: { incremental?: boolean } = {}) => {
+    return gateway.reindexKnowledge({ incremental: payload?.incremental !== false })
+  })
+  ipcMain.handle('knowledge:kbs', () => gateway.listKnowledgeBases())
+  ipcMain.handle('knowledge:kbs:create', (_event, payload: { name?: string } = {}) => {
+    const name = (payload?.name ?? '').trim()
+    if (!name) throw new Error('知识库名称不能为空')
+    return gateway.createKnowledgeBase(name)
+  })
+  ipcMain.handle('knowledge:kbs:delete', (_event, kbId: string) => {
+    const id = (kbId ?? '').trim()
+    if (!id) throw new Error('缺少 kbId')
+    return gateway.deleteKnowledgeBase(id)
+  })
+  ipcMain.handle('knowledge:kbs:files', (_event, kbId: string) => {
+    const id = (kbId ?? '').trim()
+    if (!id) throw new Error('缺少 kbId')
+    return gateway.listKbFiles(id)
+  })
+  ipcMain.handle(
+    'knowledge:kbs:upload',
+    (_event, payload: { kbId?: string; files?: { relPath: string; type: string; data: ArrayBuffer }[] } = {}) => {
+      const kbId = (payload?.kbId ?? '').trim()
+      if (!kbId) throw new Error('缺少 kbId')
+      const files = payload?.files ?? []
+      if (files.length === 0) throw new Error('未选择文件')
+      return gateway.uploadKbFiles(kbId, files)
+    }
+  )
+  ipcMain.handle('knowledge:kbs:delete-file', (_event, payload: { kbId?: string; rel?: string } = {}) => {
+    const kbId = (payload?.kbId ?? '').trim()
+    const rel = (payload?.rel ?? '').trim()
+    if (!kbId || !rel) throw new Error('缺少 kbId 或 rel')
+    return gateway.deleteKbFile(kbId, rel)
+  })
+  ipcMain.handle('knowledge:search', (_event, payload: { query?: string; kb_id?: string; top_n?: number } = {}) => {
+    const query = (payload?.query ?? '').trim()
+    if (!query) throw new Error('query 不能为空')
+    return gateway.searchKnowledge({ query, kb_id: payload?.kb_id || undefined, top_n: payload?.top_n })
+  })
+  ipcMain.handle(
+    'knowledge:query',
+    async (
+      _event,
+      payload: { query?: string; kb_id?: string; provider?: ProviderKey; depth?: DepthKey; top_n?: number; conversation_id?: string } = {}
+    ) => {
+      const query = (payload?.query ?? '').trim()
+      if (!query) throw new Error('query 不能为空')
+      const provider = payload?.provider ?? 'deepseek'
+      const depth = payload?.depth ?? 'fast'
+      if (provider !== 'deepseek' && provider !== 'qwen') throw new Error('无效的 provider')
+      if (depth !== 'fast' && depth !== 'deep') throw new Error('无效的 depth')
+      const conversationId = (payload?.conversation_id ?? '').trim() || undefined
+      const result = await gateway.queryKnowledge({
+        query,
+        kb_id: payload?.kb_id || undefined,
+        provider,
+        depth,
+        top_n: payload?.top_n,
+        ...(conversationId ? { conversation_id: conversationId } : {})
+      })
+      // 知识库问答不走 SSE（历史面板只监听 chat:event done/error 触发列表刷新）→ 成功后补发一次 done
+      const win = BrowserWindow.fromWebContents(_event.sender)
+      const cid = (result as { conversation_id?: string } | null)?.conversation_id ?? conversationId
+      if (win && cid) {
+        win.webContents.send('chat:event', { conversationId: cid, type: 'done', data: { conversation_id: cid } })
+      }
+      return result
+    }
+  )
+
   // 文件库：文件夹/文件树（真实文件系统 data/library/），全部经主进程 fs 操作
   ipcMain.handle('library:list', async () => {
     return { tree: await library.list() }

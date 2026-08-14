@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { cn } from '../../lib/cn'
 import type { ChatMessage } from '../../lib/use-chat'
+import { CitationChips } from '../knowledge/citation-chips'
 import { ThinkingIndicator } from './thinking-indicator'
 
 interface ChatThreadProps {
@@ -29,14 +30,18 @@ export function ChatThread({ messages, streaming }: ChatThreadProps) {
           <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
             <div
               className={cn(
-                'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-6',
+                'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-6',
                 m.role === 'user'
                   ? 'bg-green-500 text-white'
                   : 'border border-gray-200/80 bg-white text-gray-800',
                 m.error && 'border-red-200 text-red-600'
               )}
             >
-              {m.content}
+              <div className="whitespace-pre-wrap break-words">{m.content}</div>
+              {/* 知识库问答引用来源 chips */}
+              {m.role === 'assistant' && m.citations && m.citations.length > 0 && (
+                <CitationChips citations={m.citations} />
+              )}
               {/* 流式生成中的光标 */}
               {lastStreaming && i === lastIndex && (
                 <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-green-500 align-middle" />

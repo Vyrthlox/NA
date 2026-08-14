@@ -30,9 +30,12 @@ from sidecar.routes.attachments import bp as attachments_bp  # noqa: E402
 from sidecar.routes.chat import bp as chat_bp  # noqa: E402
 from sidecar.routes.conversations import bp as conversations_bp  # noqa: E402
 from sidecar.routes.health import bp as health_bp  # noqa: E402
+from sidecar.routes.knowledge import bp as knowledge_bp  # noqa: E402
 from sidecar.routes.memory import bp as memory_bp  # noqa: E402
 from sidecar.services.context.config import SidecarConfig  # noqa: E402
 from sidecar.services.context.storage import ConversationStorage  # noqa: E402
+from sidecar.services.knowledge.config import KnowledgeConfig  # noqa: E402
+from sidecar.services.knowledge.service import KnowledgeService  # noqa: E402
 from sidecar.services.memory.config import MemoryConfig  # noqa: E402
 from sidecar.services.memory.service import MemoryService  # noqa: E402
 
@@ -49,12 +52,15 @@ def create_app(server_cfg: ServerConfig | None = None, context_cfg: SidecarConfi
     app.config["MEMORY_SERVICE"] = MemoryService(
         ctx_cfg, MemoryConfig(), ConversationStorage(ctx_cfg.conversations_dir)
     )
+    # RAG 知识库服务（懒加载：start() 后台加载索引/重建，端点就绪前返回 503 提示先 reindex）
+    app.config["KNOWLEDGE_SERVICE"] = KnowledgeService(ctx_cfg, KnowledgeConfig())
 
     app.register_blueprint(health_bp)
     app.register_blueprint(chat_bp)
     app.register_blueprint(attachments_bp)
     app.register_blueprint(conversations_bp)
     app.register_blueprint(memory_bp)
+    app.register_blueprint(knowledge_bp)
     # 附件体积上限（MB→字节）：Flask 在解析 multipart 前即拦截超限请求（413）
     app.config["MAX_CONTENT_LENGTH"] = server_cfg.max_upload_mb * 1024 * 1024
 
@@ -124,6 +130,10 @@ def run_server(app: Flask, server_cfg: ServerConfig) -> None:
     memory_svc = app.config.get("MEMORY_SERVICE")
     if memory_svc:
         memory_svc.start()
+    # 后台加载/重建 RAG 知识库索引
+    knowledge_svc = app.config.get("KNOWLEDGE_SERVICE")
+    if knowledge_svc:
+        knowledge_svc.start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -131,6 +141,8 @@ def run_server(app: Flask, server_cfg: ServerConfig) -> None:
     finally:
         if memory_svc:
             memory_svc.shutdown()
+        if knowledge_svc:
+            knowledge_svc.shutdown()
 
 
 def main() -> None:

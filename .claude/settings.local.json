@@ -23,7 +23,23 @@
       "Bash(powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\\\"ProcessId=265652\\\\\" | Select-Object ProcessId, ParentProcessId, Name, CommandLine | Format-List\" 2>/dev/null)",
       "Bash(powershell -NoProfile -Command \"\\\\$p = Get-CimInstance Win32_Process -Filter \\\\\"Name='python.exe'\\\\\" | Where-Object { \\\\$_.CommandLine -like '*sidecar.app*' }; \\\\$e = Get-CimInstance Win32_Process -Filter \\\\\"Name='electron.exe'\\\\\" | Where-Object { \\\\$_.CommandLine -like '*Desktop*NA*' }; if \\(\\\\$p -or \\\\$e\\) { echo 'LEFTOVER'; \\\\$p; \\\\$e } else { echo 'ALL CLEAN' }\" 2>/dev/null)",
       "Bash(node --input-type=module -e ' *)",
-      "Bash(powershell -NoProfile -Command \"\\\\$e = Get-CimInstance Win32_Process -Filter \\\\\"Name='electron.exe'\\\\\" | Where-Object { \\\\$_.CommandLine -like '*Desktop*NA*' }; foreach \\(\\\\$p in \\\\$e\\) { cmd /c \\\\\"taskkill /PID \\\\$\\(\\\\$p.ProcessId\\) /T /F\\\\\" > \\\\$null 2>&1 }; Start-Sleep 2; \\\\$left = Get-CimInstance Win32_Process -Filter \\\\\"Name='electron.exe'\\\\\" | Where-Object { \\\\$_.CommandLine -like '*Desktop*NA*' }; if \\(\\\\$left\\) { echo 'ELECTRON STILL RUNNING' } else { echo 'ELECTRON CLEANED' }\" 2>/dev/null)"
+      "Bash(powershell -NoProfile -Command \"\\\\$e = Get-CimInstance Win32_Process -Filter \\\\\"Name='electron.exe'\\\\\" | Where-Object { \\\\$_.CommandLine -like '*Desktop*NA*' }; foreach \\(\\\\$p in \\\\$e\\) { cmd /c \\\\\"taskkill /PID \\\\$\\(\\\\$p.ProcessId\\) /T /F\\\\\" > \\\\$null 2>&1 }; Start-Sleep 2; \\\\$left = Get-CimInstance Win32_Process -Filter \\\\\"Name='electron.exe'\\\\\" | Where-Object { \\\\$_.CommandLine -like '*Desktop*NA*' }; if \\(\\\\$left\\) { echo 'ELECTRON STILL RUNNING' } else { echo 'ELECTRON CLEANED' }\" 2>/dev/null)",
+      "Bash(node temp/cdp_drive.mjs dump)",
+      "Bash(python -m json.tool)",
+      "Bash(node *)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 130152 //T //F)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('port:', d.get\\('port'\\), 'pid:', d.get\\('pid'\\)\\)\")",
+      "Bash(icacls \"docs/client-architecture.md\")",
+      "Bash(icacls \"docs/knowledge-rag.md\")",
+      "Bash(python *)",
+      "Bash(rm -rf temp/kb_opt_selftest)",
+      "Bash(PYTHONIOENCODING=utf-8 python -m sidecar.scripts.self_test_knowledge --data-dir temp/kb_opt_selftest)",
+      "Bash(PYTHONIOENCODING=utf-8 python temp/kb_timing_check.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -m sidecar.scripts.self_test --dry-run --rounds 5 --data-dir temp/selftest-kbhist-ctx)",
+      "Bash(PYTHONIOENCODING=utf-8 python -m sidecar.scripts.self_test_knowledge --data-dir temp/selftest-kbhist-kb)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:9333/json/list)",
+      "Bash(taskkill //PID 168452 //F)"
     ]
   }
 }

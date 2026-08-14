@@ -43,6 +43,8 @@ interface ConversationTurn {
   seq: number
   role: 'user' | 'assistant'
   text: string
+  /** 知识库问答轮次的引用来源（仅 assistant 且 kind=kb 时携带） */
+  citations?: KnowledgeCitation[]
 }
 
 /** 与 electron/main/gateway/client.ts 的 ChatStreamEvent 一致 */
@@ -72,6 +74,99 @@ interface LibraryNode {
   name: string
   type: 'folder' | 'file'
   children?: LibraryNode[]
+}
+
+/** 知识库检索结果片段（POST /knowledge/search 的 results 元素，wire 字段 snake_case 与 sidecar 一致） */
+interface KnowledgeSearchResult {
+  chunk_id: string
+  doc_id: string
+  text: string
+  section: string
+  score: number
+  rank: number
+  /** 命中来源：bm25 / vector / exact / rrf */
+  sources: string[]
+}
+
+interface KnowledgeSearchResponse {
+  query: string
+  results: KnowledgeSearchResult[]
+}
+
+/** 知识库问答引用（POST /knowledge/query 的 citations 元素；text 截断到 2000 字符） */
+interface KnowledgeCitation {
+  chunk_id: string
+  doc_id: string
+  section: string
+  text: string
+  score: number
+  rank: number
+  /** 命中来源：bm25 / vector / exact / rrf（随 query 一并返回，UI 单路调用即可渲染来源徽标） */
+  sources: string[]
+}
+
+interface KnowledgeQueryResponse {
+  query: string
+  answer: string
+  citations: KnowledgeCitation[]
+  /** 该轮问答落盘的历史会话 id（服务端新建/续用后回传，前端据此同步） */
+  conversation_id?: string
+}
+
+interface KnowledgeReindexResponse {
+  ok?: boolean
+  docs: number
+  chunks: number
+  updated: number
+  skipped: number
+  removed: number
+  failed: number
+  elapsed: number
+  /** 上传时返回：本次实际写入文件数 */
+  written?: number
+}
+
+/** 用户自建知识库（GET /knowledge/kbs 的 kbs 元素） */
+interface KnowledgeBase {
+  id: string
+  name: string
+  created_at: string
+  /** 文件数（files/ 目录实际文件数） */
+  files: number
+  /** chunk 数（chunks.jsonl 行数） */
+  chunks: number
+  /** 已建索引（有可检索 chunk） */
+  indexed: boolean
+}
+
+/** 知识库内文件（GET /knowledge/kbs/<id>/files 的 files 元素） */
+interface KnowledgeFile {
+  /** 相对 files/ 的 posix 路径（子目录上传保留，删除/展示用） */
+  rel: string
+  name: string
+  size: number
+  mtime: number
+}
+
+/** 上传文件载荷（renderer → IPC → gateway multipart；data 经 ArrayBuffer 直传） */
+interface KnowledgeUploadFile {
+  /** 相对路径：上传文件夹用 webkitRelativePath，单文件用文件名 */
+  relPath: string
+  type: string
+  size: number
+  data: ArrayBuffer
+}
+
+/** 知识库索引状态（GET /knowledge/status） */
+interface KnowledgeStatus {
+  available: boolean
+  /** 任一 KB 已建索引 */
+  indexed: boolean
+  /** 全部 KB 摘要列表 */
+  kbs: KnowledgeBase[]
+  embed_model: string
+  last_error: string | null
+  last_stats: KnowledgeReindexResponse | null
 }
 
 interface Window {
@@ -113,6 +208,42 @@ interface Window {
       get: (conversationId: string) => Promise<{ conversation_id: string; turns: ConversationTurn[] }>
       /** 删除历史会话（磁盘目录 + 附件一并清理） */
       delete: (conversationId: string) => Promise<{ deleted: string }>
+    }
+    knowledge: {
+      /** 索引状态（available + 全部 KB 摘要），不触发重建 */
+      status: () => Promise<KnowledgeStatus>
+      /** 重建全部 KB 索引，返回最新统计 */
+      reindex: (payload?: { incremental?: boolean }) => Promise<KnowledgeReindexResponse>
+      /** 混合检索：可选 kb_id 限定单个知识库 */
+      search: (payload: {
+        query: string
+        kb_id?: string
+        top_n?: number
+      }) => Promise<KnowledgeSearchResponse>
+      /** 检索 + LLM 生成：可选 kb_id 限定单个知识库；conversation_id 指定落盘的历史会话 */
+      query: (payload: {
+        query: string
+        kb_id?: string
+        provider?: ProviderKey
+        depth?: DepthKey
+        top_n?: number
+        conversation_id?: string
+      }) => Promise<KnowledgeQueryResponse>
+      /** 知识库列表 */
+      kbs: () => Promise<{ kbs: KnowledgeBase[] }>
+      /** 创建知识库 */
+      createKb: (name: string) => Promise<{ ok: boolean; id: string; name: string }>
+      /** 删除知识库（含索引目录） */
+      deleteKb: (kbId: string) => Promise<{ ok: boolean }>
+      /** 列出知识库内文件 */
+      listKbFiles: (kbId: string) => Promise<{ kb_id: string; files: KnowledgeFile[] }>
+      /** 上传文件到知识库（变更+重建一体，返回 stats） */
+      uploadKbFiles: (payload: {
+        kbId: string
+        files: KnowledgeUploadFile[]
+      }) => Promise<{ ok: boolean; stats: KnowledgeReindexResponse }>
+      /** 删除知识库内文件（变更+重建一体） */
+      deleteKbFile: (payload: { kbId: string; rel: string }) => Promise<{ ok: boolean; stats: KnowledgeReindexResponse }>
     }
     library: {
       /** 列出整棵文件夹/文件树（data/library/） */

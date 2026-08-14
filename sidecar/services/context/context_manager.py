@@ -168,6 +168,9 @@ class ContextManager:
                 )
 
         for t in self.turns:
+            # 知识库问答轮次仅落盘历史展示，不进入普通对话上下文（纯知识库问答语义）
+            if t.kind == "kb":
+                continue
             if t.tier == "compressed":
                 if t.user_intent_summary or t.constraints or t.tool_reduced:
                     messages.append({"role": "user", "content": self._render_compressed_user(t)})
@@ -278,6 +281,32 @@ class ContextManager:
         self._persist()
         return turn
 
+    def finalize_kb_turn(
+        self,
+        user_text: str,
+        assistant_text: str,
+        citations: list[dict[str, Any]] | None = None,
+    ) -> Turn:
+        """知识库问答轮次落盘：仅写入 context.json 供历史会话展示/恢复。
+
+        与 finalize_turn 的区别：不做拆卸（dismantled.json）、不参与分级压缩/锚点提取、
+        不进入上下文组装（assemble_messages 跳过 kind=kb）——保持「纯知识库问答不掺普通
+        聊天上下文」的语义。seq 与普通轮次共用递增，历史列表按序展示。
+        """
+        if not self.conversation_id:
+            self.create_conversation()
+        turn = Turn(
+            seq=self._next_seq(),
+            kind="kb",
+            tier="recent",
+            user_text=user_text,
+            assistant_text=assistant_text,
+            citations=list(citations or []),
+        )
+        self.turns.append(turn)
+        self._persist()
+        return turn
+
     def run_turn(
         self,
         user_text: str,
@@ -299,6 +328,9 @@ class ContextManager:
         """按当前轮数重算每轮的层级（只升不降），必要时惰性触发压缩 / 锚点提取。"""
         total = len(self.turns)
         for i, t in enumerate(self.turns):
+            # 知识库问答轮次保持 recent、不做压缩/锚点（不进上下文，无需分级）
+            if t.kind == "kb":
+                continue
             behind = total - i  # 距最新轮的距离
             if behind > self.m:
                 target = "anchored"

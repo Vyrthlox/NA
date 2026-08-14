@@ -4,6 +4,14 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   error?: boolean
+  /** 知识库问答消息携带的引用来源（assistant 气泡下渲染 chips） */
+  citations?: KnowledgeCitation[]
+}
+
+/** 「基于知识库」开关状态：enabled=开 + kbId=所选知识库 */
+export interface KbSend {
+  enabled: boolean
+  kbId?: string
 }
 
 export interface UseChat {
@@ -17,8 +25,8 @@ export interface UseChat {
   attachments: Attachment[]
   /** 上传失败时的错误提示（空串/正常时 null） */
   uploadError: string | null
-  /** 发送消息：模型选择（provider 提供商 × depth 档位），未传则默认 deepseek·fast */
-  send: (text: string, choice?: ModelChoice) => void
+  /** 发送消息：模型选择（provider 提供商 × depth 档位），未传则默认 deepseek·fast；kb 开启「基于知识库」时走纯知识库问答 */
+  send: (text: string, choice?: ModelChoice, kb?: KbSend) => void
   stop: () => void
   /** 上传文件：读为 ArrayBuffer → IPC → sidecar 落盘，成功后加入附件列表 */
   upload: (file: File) => Promise<void>
@@ -81,9 +89,10 @@ export function useChat(): UseChat {
   }, [])
 
   const send = useCallback(
-    (text: string, choice?: ModelChoice): void => {
+    (text: string, choice?: ModelChoice, kb?: KbSend): void => {
       const message = text.trim()
       if (!message || streamingRef.current || sidecarStatus !== 'ready') return
+      const useKb = !!kb?.enabled && !!kb?.kbId
       if (!conversationIdRef.current) {
         conversationIdRef.current = crypto.randomUUID()
         setConversationId(conversationIdRef.current)
@@ -94,6 +103,43 @@ export function useChat(): UseChat {
       streamingRef.current = true
       setStreaming(true)
       setMessages((prev) => [...prev, { role: 'user', content: message }])
+
+      // 纯知识库问答：/knowledge/query 单次返回 answer + citations，不掺普通聊天上下文；
+      // 该轮问答由 sidecar 落盘到本会话（历史对话可见）
+      if (useKb) {
+        void window.api.knowledge
+          .query({
+            query: message,
+            kb_id: kb.kbId,
+            provider: choice?.provider ?? 'deepseek',
+            depth: choice?.depth ?? 'fast',
+            conversation_id: conversationId
+          })
+          .then((res) => {
+            // 服务端可能新建会话 → 采纳回传的 conversation_id，保证历史列表与主区一致
+            if (res?.conversation_id && res.conversation_id !== conversationIdRef.current) {
+              conversationIdRef.current = res.conversation_id
+              setConversationId(res.conversation_id)
+            }
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', content: res.answer ?? '', citations: res.citations ?? [] }
+            ])
+          })
+          .catch((err: unknown) => {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', content: `[错误] ${String(err)}`, error: true }
+            ])
+          })
+          .finally(() => {
+            streamingRef.current = false
+            setStreaming(false)
+          })
+        return
+      }
+
+      // 普通对话：SSE 流式
       void window.api.chat
         .send({
           message,
@@ -164,7 +210,12 @@ export function useChat(): UseChat {
       const turns = data?.turns ?? []
       const loaded = turns
         .filter((t) => t && typeof t.text === 'string' && t.text.length > 0)
-        .map((t) => ({ role: t.role, content: t.text }))
+        .map((t): ChatMessage => {
+          const msg: ChatMessage = { role: t.role, content: t.text }
+          // 知识库问答轮次恢复引用来源 chips
+          if (t.citations && t.citations.length > 0) msg.citations = t.citations
+          return msg
+        })
       setMessages(loaded)
     } catch (err) {
       // 拉取失败不打断：会话 id 已指向该会话，可直接继续发消息

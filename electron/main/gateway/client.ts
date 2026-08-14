@@ -171,4 +171,147 @@ export class GatewayClient {
     }
     return res.json()
   }
+
+  // ---------------- 知识库 RAG ----------------
+
+  /** 通用 JSON POST：endpoint 检查 + Bearer + res.ok 校验，返回解析后的 JSON。 */
+  private async postJson(path: string, body: unknown): Promise<unknown> {
+    const endpoint = this.sidecar.getEndpoint()
+    if (!endpoint) throw new Error('sidecar 未就绪')
+    const res = await fetch(`${endpoint.baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${endpoint.token}`
+      },
+      body: JSON.stringify(body)
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`sidecar 返回 ${res.status}: ${errBody}`)
+    }
+    return res.json()
+  }
+
+  /** 索引状态（不触发重建）：docs/chunks/index_type/是否就绪。 */
+  async getKnowledgeStatus(): Promise<unknown> {
+    const endpoint = this.sidecar.getEndpoint()
+    if (!endpoint) throw new Error('sidecar 未就绪')
+    const res = await fetch(`${endpoint.baseUrl}/knowledge/status`, {
+      headers: { Authorization: `Bearer ${endpoint.token}` }
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`sidecar 返回 ${res.status}: ${errBody}`)
+    }
+    return res.json()
+  }
+
+  /** 重建/增量更新索引，返回 {docs, chunks, updated, skipped, elapsed}。 */
+  async reindexKnowledge(payload?: { incremental?: boolean }): Promise<unknown> {
+    return this.postJson('/knowledge/reindex', payload ?? {})
+  }
+
+  /** 通用 JSON 请求（POST/DELETE 带 body）：endpoint 检查 + Bearer + res.ok 校验。 */
+  private async requestJson(method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<unknown> {
+    const endpoint = this.sidecar.getEndpoint()
+    if (!endpoint) throw new Error('sidecar 未就绪')
+    const res = await fetch(`${endpoint.baseUrl}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${endpoint.token}`
+      },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`sidecar 返回 ${res.status}: ${errBody}`)
+    }
+    return res.json()
+  }
+
+  /** 知识库列表（{id, name, created_at, files, chunks, indexed}）。 */
+  async listKnowledgeBases(): Promise<unknown> {
+    const endpoint = this.sidecar.getEndpoint()
+    if (!endpoint) throw new Error('sidecar 未就绪')
+    const res = await fetch(`${endpoint.baseUrl}/knowledge/kbs`, {
+      headers: { Authorization: `Bearer ${endpoint.token}` }
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`sidecar 返回 ${res.status}: ${errBody}`)
+    }
+    return res.json()
+  }
+
+  /** 创建知识库（服务端建目录，无需索引）。 */
+  async createKnowledgeBase(name: string): Promise<unknown> {
+    return this.postJson('/knowledge/kbs', { name })
+  }
+
+  /** 删除知识库（含索引目录 + 注册表记录）。 */
+  async deleteKnowledgeBase(kbId: string): Promise<unknown> {
+    return this.requestJson('DELETE', `/knowledge/kbs/${encodeURIComponent(kbId)}`)
+  }
+
+  /** 列出知识库内文件（{rel, name, size, mtime}）。 */
+  async listKbFiles(kbId: string): Promise<unknown> {
+    const endpoint = this.sidecar.getEndpoint()
+    if (!endpoint) throw new Error('sidecar 未就绪')
+    const res = await fetch(`${endpoint.baseUrl}/knowledge/kbs/${encodeURIComponent(kbId)}/files`, {
+      headers: { Authorization: `Bearer ${endpoint.token}` }
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`sidecar 返回 ${res.status}: ${errBody}`)
+    }
+    return res.json()
+  }
+
+  /**
+   * 上传文件到知识库（multipart，多 file part，filename=相对路径）：
+   * 服务端「写文件 + reindex」一体，返回 stats。
+   */
+  async uploadKbFiles(kbId: string, files: { relPath: string; type: string; data: ArrayBuffer }[]): Promise<unknown> {
+    const endpoint = this.sidecar.getEndpoint()
+    if (!endpoint) throw new Error('sidecar 未就绪')
+    const form = new FormData()
+    for (const f of files) {
+      form.append('file', new Blob([f.data], { type: f.type }), f.relPath)
+    }
+    const res = await fetch(`${endpoint.baseUrl}/knowledge/kbs/${encodeURIComponent(kbId)}/files`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${endpoint.token}` },
+      body: form
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`上传失败 ${res.status}: ${errBody}`)
+    }
+    return res.json()
+  }
+
+  /** 删除知识库内文件（服务端「删文件 + reindex」一体）。 */
+  async deleteKbFile(kbId: string, rel: string): Promise<unknown> {
+    return this.requestJson('DELETE', `/knowledge/kbs/${encodeURIComponent(kbId)}/files`, { rel })
+  }
+
+  /** 混合检索：返回按分数降序的 chunk 片段（带 sources 来源）；kb_id 限定单个知识库。 */
+  async searchKnowledge(payload: { query: string; kb_id?: string; top_n?: number }): Promise<unknown> {
+    return this.postJson('/knowledge/search', payload)
+  }
+
+  /** 检索 + LLM 生成：返回 answer + citations + conversation_id（该轮落盘历史会话）；
+   *  kb_id 限定单个知识库。 */
+  async queryKnowledge(payload: {
+    query: string
+    kb_id?: string
+    provider?: ProviderKey
+    depth?: DepthKey
+    top_n?: number
+    conversation_id?: string
+  }): Promise<unknown> {
+    return this.postJson('/knowledge/query', payload)
+  }
 }

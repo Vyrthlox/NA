@@ -81,14 +81,22 @@ class ToolReduced:
 
 @dataclass
 class Turn:
-    """一轮对话及其分级保留状态。tier: recent | compressed | anchored"""
+    """一轮对话及其分级保留状态。tier: recent | compressed | anchored
+
+    kind: chat=普通对话 / kb=知识库问答。kb 轮次仅落盘历史展示，不参与上下文组装、
+    不做分级压缩（assemble_messages / _recompute_tiers 跳过），保持「纯知识库问答」语义。
+    """
 
     seq: int
     tier: str = "recent"
+    kind: str = "chat"
 
     # --- 近期（全量原文） ---
     user_text: str | None = None
     assistant_text: str | None = None
+
+    # --- 知识库问答引用来源（POST /knowledge/query 的 citations 元素，仅 kb 轮次携带） ---
+    citations: list[dict[str, Any]] = field(default_factory=list)
 
     # --- 中期（压缩保留：用户意图摘要 + 关键结论，丢弃中间推理） ---
     user_intent_summary: str | None = None
@@ -108,8 +116,10 @@ class Turn:
         return {
             "seq": self.seq,
             "tier": self.tier,
+            "kind": self.kind,
             "user_text": self.user_text,
             "assistant_text": self.assistant_text,
+            "citations": self.citations,
             "user_intent_summary": self.user_intent_summary,
             "user_key_fragments": self.user_key_fragments,
             "constraints": self.constraints,
@@ -120,9 +130,10 @@ class Turn:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Turn":
-        t = cls(seq=int(data["seq"]), tier=data.get("tier", "recent"))
+        t = cls(seq=int(data["seq"]), tier=data.get("tier", "recent"), kind=data.get("kind", "chat"))
         t.user_text = data.get("user_text")
         t.assistant_text = data.get("assistant_text")
+        t.citations = list(data.get("citations") or [])
         t.user_intent_summary = data.get("user_intent_summary")
         t.user_key_fragments = list(data.get("user_key_fragments", []))
         t.constraints = data.get("constraints")

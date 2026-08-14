@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Sidebar, { type NavKey } from './components/sidebar'
 import ChatPage from './components/na/chat-page'
+import KnowledgePage from './components/knowledge/knowledge-page'
 import NoteEditor from './components/library/note-editor'
 
 export default function App() {
@@ -29,7 +30,10 @@ export default function App() {
         {openFile ? (
           <NoteEditor key={openFile.id} node={openFile} onClose={() => setOpenFile(null)} />
         ) : (
-          active === 'na' && <ChatPage />
+          <>
+            {active === 'na' && <ChatPage />}
+            {active === 'knowledge' && <KnowledgePage />}
+          </>
         )}
       </main>
     </div>

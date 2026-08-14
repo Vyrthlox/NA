@@ -59,6 +59,41 @@ const api = {
     get: (conversationId: string): Promise<unknown> => ipcRenderer.invoke('conversations:get', conversationId),
     delete: (conversationId: string): Promise<unknown> => ipcRenderer.invoke('conversations:delete', conversationId)
   },
+  knowledge: {
+    /** 索引状态（available + 全部 KB 摘要），不触发重建 */
+    status: (): Promise<unknown> => ipcRenderer.invoke('knowledge:status'),
+    /** 重建全部 KB 索引 */
+    reindex: (payload?: { incremental?: boolean }): Promise<unknown> =>
+      ipcRenderer.invoke('knowledge:reindex', payload),
+    /** 混合检索：可选 kb_id 限定单个知识库 */
+    search: (payload: { query: string; kb_id?: string; top_n?: number }): Promise<unknown> =>
+      ipcRenderer.invoke('knowledge:search', payload),
+    /** 检索 + LLM 生成：可选 kb_id 限定单个知识库；conversation_id 指定落盘的历史会话 */
+    query: (payload: {
+      query: string
+      kb_id?: string
+      provider?: ProviderKey
+      depth?: DepthKey
+      top_n?: number
+      conversation_id?: string
+    }): Promise<unknown> => ipcRenderer.invoke('knowledge:query', payload),
+    /** 知识库列表（id/name/created_at/files/chunks/indexed） */
+    kbs: (): Promise<unknown> => ipcRenderer.invoke('knowledge:kbs'),
+    /** 创建知识库 */
+    createKb: (name: string): Promise<unknown> => ipcRenderer.invoke('knowledge:kbs:create', { name }),
+    /** 删除知识库（含索引目录） */
+    deleteKb: (kbId: string): Promise<unknown> => ipcRenderer.invoke('knowledge:kbs:delete', kbId),
+    /** 列出知识库内文件 */
+    listKbFiles: (kbId: string): Promise<unknown> => ipcRenderer.invoke('knowledge:kbs:files', kbId),
+    /** 上传文件到知识库（变更+重建一体，服务端返回 stats） */
+    uploadKbFiles: (payload: {
+      kbId: string
+      files: { relPath: string; type: string; data: ArrayBuffer }[]
+    }): Promise<unknown> => ipcRenderer.invoke('knowledge:kbs:upload', payload),
+    /** 删除知识库内文件（变更+重建一体） */
+    deleteKbFile: (payload: { kbId: string; rel: string }): Promise<unknown> =>
+      ipcRenderer.invoke('knowledge:kbs:delete-file', payload)
+  },
   library: {
     /** 列出整棵文件夹/文件树（data/library/） */
     list: (): Promise<unknown> => ipcRenderer.invoke('library:list'),

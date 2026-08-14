@@ -97,7 +97,11 @@ def conversations_get(conversation_id: str):
         if user_text:
             turns.append({"seq": seq, "role": "user", "text": user_text})
         if assistant_text:
-            turns.append({"seq": seq, "role": "assistant", "text": assistant_text})
+            item: dict[str, Any] = {"seq": seq, "role": "assistant", "text": assistant_text}
+            citations = t.get("citations") or []
+            if citations:
+                item["citations"] = citations
+            turns.append(item)
 
     return jsonify({"conversation_id": conversation_id, "turns": turns})
 

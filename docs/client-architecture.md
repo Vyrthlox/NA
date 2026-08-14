@@ -1,8 +1,9 @@
 # 智能笔记系统 — 客户端架构设计与技术文档
 
-> 版本：v0.6（AI 对话链路 + 上下文工程 + DS 深度模式 + 附件上传 + 长期记忆落地）
-> 最后更新：2026-08-11
-> 变更：v0.5 基础上，实现「AI 对话长期记忆」（Mem0 + 本地 qdrant 向量 + bge-small-zh 嵌入 + bge-reranker 精排 + 每轮异步抽取 + 检索注入上下文），并新增 `/memory/*` 端点；
+> 版本：v0.7（AI 对话链路 + 上下文工程 + DS 深度模式 + 附件上传 + 长期记忆 + 知识库 RAG 落地）
+> 最后更新：2026-08-14
+> 变更：v0.6 基础上，落地「知识库 RAG」（自研 BM25 + FAISS 混合检索 → RRF → 级联重排 → LLM 生成，含检索速度优化，见 §10.4 / docs/knowledge-rag.md）；知识库改为用户自建 KB + 每 KB 独立索引 + 变更即重建，并接入 AI 对话「基于知识库」开关；
+> 2026-08-14：知识库上传/删除重建改**增量**（只重建受影响文档，未变文档复用既有 chunk/向量），小文件上传 ~1min → 秒级，详见 docs/knowledge-rag.md §2.2；
 > 各模块以「✅ 已实现 / 🧭 规划中」标注，规划内容仍为既定方向。
 
 ---
@@ -20,7 +21,7 @@
 | 文件上传[+]（附件，仅保存展示） | ✅ 已实现 | PDF/DOCX/XLSX/TXT/MD/HTML/PNG/JPG，≤100MB，见 §8.1 / §9.1 |
 | 客户端 SQLite（笔记/笔记本） | 🧭 规划中 | 见 §10 |
 | 长期记忆（Mem0 + 本地 qdrant） | ✅ 已实现 | 抽取/存储/检索/注入全链路，见 §7.9 |
-| 知识库 / 文档解析 | 🧭 规划中 | 见 §10 |
+| 知识库 RAG（检索+问答） | ✅ 已实现 | 自研 BM25+FAISS 混合检索，见 §10.4 / docs/knowledge-rag.md |
 | 整理/美化能力 | 🧭 规划中 | 见 §10 |
 
 ---
@@ -41,7 +42,7 @@
 | 笔记本 | 平级，不支持嵌套 |
 | 笔记 | 富文本；图片可折叠为极小占位链接 |
 | AI 助手 | 编辑区右侧可折叠面板；上下文边界 = 当前笔记所在的**笔记本** |
-| 知识库 | 精选笔记的集合 + 用户上传的外部文档 |
+| 知识库 | 用户自建的集合（KBs）：上传文件/文件夹/笔记入库，每 KB 独立索引（不再自动索引笔记库） |
 | 长期记忆 | AI 跨会话记住笔记本相关的要点/偏好（Mem0 + 本地 qdrant 向量存储） |
 | 离线 | 客户端离线可用；在线 API 不可达时 AI 降级 |
 | 外部文档 | 默认 PDF / Word / TXT / Markdown，Python 侧解析 |
@@ -68,7 +69,7 @@
 │  │  Flask (REST + SSE 流式)          ✅ 已实现              │   │
 │  │  上下文引擎(缩减/拆卸/分级保留)     ✅ 已实现              │   │
 │  │  长期记忆(Mem0 + qdrant + 本地嵌入/精排) ✅ 已实现         │   │
-│  │  LangChain 编排 · 知识库 · 文档解析  🧭 规划中            │   │
+│  │  知识库RAG(BM25+FAISS) ✅ · LangChain编排/文档解析 🧭    │   │
 │  │  └── qdrant 本地 on-disk 向量库（长期记忆） ✅ 已实现      │   │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
@@ -77,7 +78,7 @@
 要点：
 - **Electron 客户端**：纯 UI + 笔记/笔记本本地存储，不直接调外部 AI。
 - **Python Sidecar**：所有 AI / 向量 / 文档解析能力。Electron 启动时拉起，退出时回收。
-- **qdrant 本地 on-disk**：嵌入 sidecar 进程内，无需独立部署，当前承载长期记忆（§7.9）；知识库规划复用同一套向量设施。
+- **qdrant 本地 on-disk**：嵌入 sidecar 进程内，无需独立部署，当前承载长期记忆（§7.9）。知识库 RAG 为自研 BM25 + FAISS 引擎，不走 qdrant（§10.4 / docs/knowledge-rag.md）。
 - 客户端 ⇄ sidecar 仅经 **127.0.0.1 本地 HTTP**，不暴露公网。
 
 ---
@@ -105,7 +106,7 @@
 | 长期记忆 | mem0ai + qdrant-client + sentence-transformers | ✅ | 抽取/存储/检索/注入，见 §7.9 |
 | 嵌入 / 精排 | BAAI/bge-small-zh-v1.5（512 维）+ BAAI/bge-reranker-base | ✅ | 本地离线，HF_HOME 指向 data/memory/models |
 | AI 编排 | LangChain | 🧭 | 对话、工具、记忆链编排（后续可引入） |
-| 向量库 | qdrant 本地 on-disk（经 mem0 封装） | ✅ | 长期记忆已落地；知识库复用同设施 |
+| 向量库 | qdrant on-disk（长期记忆，经 mem0）；FAISS on-disk（知识库 RAG 自研） | ✅ | 长期记忆见 §7.9；知识库见 §10.4 / docs/knowledge-rag.md |
 | 文档解析 | pdfplumber / python-docx / markdown | 🧭 | PDF / Word / MD / TXT |
 | 打包 | PyInstaller（后续） | 🧭 | sidecar 打包为独立可执行文件 |
 
@@ -499,7 +500,16 @@ final = 0.60·rerank_norm + 0.15·recency_decay(半衰期30天) + 0.15·importan
 | `/notes/index` | POST | 🧭 | 笔记保存后增量索引 |
 | `/notes/{id}/retrieve` | POST | 🧭 | 笔记本内检索 top-K |
 | `/tidy` `/beautify` | POST | 🧭 | 整理 / 美化当前笔记 |
-| `/knowledge/index` `/search` | POST | 🧭 | 文档入库 / 知识库语义搜索 |
+| `/knowledge/status` | GET | ✅ | 索引状态（available + KB 摘要，不触发重建） |
+| `/knowledge/kbs` | GET | ✅ | 知识库列表（id/name/files/chunks/indexed） |
+| `/knowledge/kbs` | POST | ✅ | 创建知识库（`{name}`） |
+| `/knowledge/kbs/<id>` | DELETE | ✅ | 删除知识库（含索引目录） |
+| `/knowledge/kbs/<id>/files` | GET | ✅ | 知识库内文件列表 |
+| `/knowledge/kbs/<id>/files` | POST | ✅ | multipart 上传文件（**变更+重建一体**） |
+| `/knowledge/kbs/<id>/files` | DELETE | ✅ | 删除文件（变更+重建一体） |
+| `/knowledge/reindex` | POST | ✅ | 重建全部 KB（兼容/自测） |
+| `/knowledge/search` | POST | ✅ | 混合检索 → 片段列表（`kb_id` 可选，缺省跨库） |
+| `/knowledge/query` | POST | ✅ | 检索 + LLM 生成 → `{answer, citations}`（`kb_id` 可选） |
 
 记忆 DELETE 为 `DELETE /memory/<memory_id>`（不存在 404）。
 
@@ -563,7 +573,7 @@ resp = Response(stream_with_context(generate()), mimetype="text/event-stream")
 ### 9.3 规划中
 
 - 客户端 SQLite（主进程，`better-sqlite3`）：`notebook` / `note`（TipTap JSON）/ `attachment`，见 §10.1。
-- 知识库集合（sidecar，复用 qdrant 设施）：`knowledge_base`，见 §10.2。
+- 知识库 RAG（sidecar）：BM25 + FAISS 混合检索 → RRF → 级联重排 → LLM 生成，✅ 已实现，见 §10.4 / docs/knowledge-rag.md（自研引擎，非 qdrant）。
 
 ---
 
@@ -604,16 +614,28 @@ CREATE TABLE attachment (
 ```python
 long_term_memory = {"id","memory","metadata:{category,importance,scope,source_conversation_id,source_seq}",
                     "embedding(dim=512)"}   # ✅ 已实现（qdrant COSINE + mem0 管理）
-knowledge_base  = {"item_id","kind:note_ref|document","title","added_at","embedding"}   # 🧭 复用同一套 qdrant+mem0 设施
+# knowledge_base 原规划作废：知识库 RAG 已自研 BM25 + FAISS 实现（§10.4 / docs/knowledge-rag.md），不走 qdrant。
 note_index      = {"note_id","notebook_id","updated_at","embedding"}                     # 🧭
 ```
 
 ### 10.3 AI 能力扩展 🧭
 
 - **长期记忆**：✅ 已落地（§7.9）。跨会话「还记得上次…」由 Mem0 + qdrant 承载；后续可扩展笔记本级 scope 隔离（`MEMORY_SCOPE=notebook:<id>`）。
-- **知识库**：精选笔记引用 + 外部文档；文档上传 → 解析 → 向量化 → 入库；提供语义搜索，**不参与** AI 助手上下文。复用 §7.9 的 qdrant + mem0 向量设施。
+- **知识库**：✅ 已实现（§10.4 / docs/knowledge-rag.md）。精选笔记引用 + 外部文档，提供语义检索与带引用问答，**不参与** AI 助手上下文。早期「复用 §7.9 qdrant+mem0 向量设施」的规划作废 —— 实为 sidecar 内自研手写 BM25 + FAISS 混合检索（嵌入仍复用本地 bge-small-zh 与同一模型缓存）。
 - **整理/美化**：当前笔记 REST 调用，结果与原文 diff 展示、一键应用。
 - **上下文组装升级**：当前编辑笔记 + 笔记本内相关笔记（向量检索）+ 长期记忆 → 组装消息链（§7.4.1 扩展）。
+
+### 10.4 知识库 RAG（sidecar）✅ 已实现
+
+自研混合检索引擎（`sidecar/services/knowledge/`），不走 qdrant：
+
+- **数据模型（2026-08-12 重构）**：知识库由用户**自建**（`data/library` 自动索引语义废弃）。注册表 `data/knowledge/kbs.json` + 每 KB 独立索引目录 `data/knowledge/<kb_id>/`（`files/` 存上传文件副本，`doc_id` = 相对 files/ 的 posix 路径，含路径穿越防护）。服务共享 Embedder/CascadeReranker，每 KB 的 store/bm25/vector 懒加载。**变更即重建**：建/传/删文件同步「写文件 + reindex」一体返回 stats，前端「正在更改」加载条掩盖。
+- **索引**：结构边界 + 语义校验切分（256~512 token / 50 overlap）→ 手写 BM25（短/长双参数 + 精确匹配）→ bge-small-zh 向量（FAISS 按规模分档：Flat / IVF / PQ，缺失走 numpy）→ 落盘 KB 独立目录；增量 reindex 复用未变文档的 chunk 与向量。
+- **检索**：BM25(auto) + 精确BM25(标识符/引号短语触发) + FAISS → RRF(k=60) → chunk_id + 余弦>0.92 去重 → 级联重排（MiniLM → bge-reranker）→ Top-3 → LLM 生成（带 `[引用i]` 标注，citations 携带 sources）。
+- **检索速度优化（2026-08-12）**：重排成本由送入文本长度主导而非候选数 → 打分截断 `KN_RERANK_MAX_TOKENS=128`、高精度重排默认关闭 `KN_RERANK_HEAVY=0`（CPU 首查加载 2.2G 模型卡 ~12.5s，关闭即现状行为）、候选池收窄 `KN_RRF_CANDIDATES=15`、候选 ≤ final_top 时跳过重排、warmup 后台预载轻量模型。实测 `search()` 从 ~1.8s → **116~125ms**（≈15×），首查 12.5s 卡顿消除。
+- **UI（2026-08-12 接入）**：知识库页顶部横向 KB 图标行（`[+]` 第一，点击命名创建；右键图标删除）→ 选中后右侧详情面板（上栏图标+名字 + 右上角 `[x]`，横线分隔，下栏文件列表：右键删除；工具行 `[搜索][+上传]`，上传三选项【本地上传】【上传文件夹】【上传文件】）。所有更改被顶部「正在更改」加载条掩盖。IPC 四层新增 `knowledge:kbs / kbs:create / kbs:delete / kbs:files / kbs:upload / kbs:delete-file`（multipart，镜像附件上传范式）。
+- **接入 AI 对话**：输入框「＋」右侧新增「基于知识库」开关；打开后隐藏【更多】（收着「帮我写作」等），显示知识库选择下拉，提问走**纯知识库问答**（`/knowledge/query` + `kb_id`，单次返回 `{answer, citations}`，assistant 气泡下渲染引用 chips）；关闭走原 SSE 流式普通对话。
+- 完整策略 / 配置总表 / 降级路径 / 自测见 **docs/knowledge-rag.md**。
 
 ---
 
@@ -625,6 +647,7 @@ note_index      = {"note_id","notebook_id","updated_at","embedding"}            
 | 启动开发 | `npm run dev`（窗口 + sidecar 自动拉起） |
 | 上下文引擎自测 | `python -m sidecar.scripts.self_test`（真实 API）/ `--dry-run`（FakeLLM 离线） |
 | 长期记忆自测 | `python -m sidecar.scripts.self_test_memory`（store 增/查/并/删 + 抽取 + 检索融合；依赖缺失优雅跳过） |
+| 知识库自测 | `python -m sidecar.scripts.self_test_knowledge [--real-llm] [--heavy]`（FakeLLM 默认离线；`--heavy` 显式开启高精度重排验证） |
 | 端到端（UI 全链路） | `npx electron-vite dev -- --remote-debugging-port=9222` + Node 全局 WebSocket 发 CDP `Runtime.evaluate` 驱动真实发送并断言事件流 |
 | 协议冒烟 | `curl -N -X POST http://127.0.0.1:<port>/chat -H "Authorization: Bearer <token>" -d '{"message":"..."}'` |
 | 记忆端到端 | 会话 A 声明偏好 → 等 2s（异步沉降）→ 会话 B 问偏好 → 组装链含「长期记忆」块且回复引用；`curl .../memory/list` / `POST /memory/compact` / `DELETE /memory/<id>` |

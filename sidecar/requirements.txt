@@ -16,3 +16,8 @@ mem0ai>=2.0.0
 sentence-transformers>=5.2.0
 transformers>=4.46.0
 fastembed>=0.3.1
+
+# ---- RAG 知识库（BM25 + FAISS + 级联重排）----
+# faiss-cpu 已核实有 cp314 win_amd64 wheel；jieba 缺失时自动降级为字符 bigram 分词。
+faiss-cpu>=1.13
+jieba>=0.42
