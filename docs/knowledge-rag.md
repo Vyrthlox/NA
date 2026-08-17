@@ -1,6 +1,7 @@
 # NA RAG 知识库 — 检索与索引策略（技术文档）
 
-> 模块：`sidecar/services/knowledge/`。本文档描述 RAG 知识库的**索引策略**与**检索策略**，含 2026-08-12 检索速度优化后的最终形态、取舍与实测数据。
+> **定位**：本文档是 RAG 知识库**索引策略的说明文档**，与 `docs/features/` 下的功能实现文档并列但不同类——它记录**算法与配置**（chunker/BM25/FAISS/RRF/级联重排/KN_*），不写 UI 与接入；知识库的功能形态见 [features/knowledge-base.md](features/knowledge-base.md)，架构总览见 [client-architecture.md](client-architecture.md)。
+> 模块：`sidecar/services/knowledge/`。描述 RAG 知识库的**索引策略**与**检索策略**，含 2026-08-12 检索速度优化后的最终形态、取舍与实测数据。
 > 依赖：`jieba`（分词，缺失降级字符 bigram）、`faiss`（向量检索，缺失走 numpy 兜底）、`sentence-transformers`（嵌入 + 重排）、在线 LLM（生成回答）。
 
 ## 1. 总体数据流
