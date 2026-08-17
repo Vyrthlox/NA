@@ -7,8 +7,10 @@ import {
   type KeyboardEvent as ReactKeyboardEvent
 } from 'react'
 import {
+  Check,
   ChevronDown,
   Database,
+  FileOutput,
   FileText,
   Image,
   Languages,
@@ -22,15 +24,54 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import { ModelSelector, type ModelChoice } from './model-selector'
+import { OrganizeDialog } from './organize-save-dialog'
 import { cn } from '../../lib/cn'
+import type { OrganizeResult } from '../../lib/use-chat'
 
-/** 底部快捷能力按钮配置（收进【更多】下拉，后续接入 sidecar 对应能力） */
-const QUICK_ACTIONS: { key: string; label: string; icon: LucideIcon }[] = [
-  { key: 'write', label: '帮我写作', icon: PenLine },
-  { key: 'translate', label: '内容翻译', icon: Languages },
-  { key: 'summarize', label: '文档总结', icon: FileText },
-  { key: 'image', label: '图片生成', icon: Image }
+/** 底部快捷能力按钮配置（收进【更多】下拉）。
+ * choice 为该项固定调用的模型：文本三件套 = DeepSeek·快速（deepseek-v4-flash），
+ * 图片生成 = Qwen·快速（qwen3.7-plus）。激活后隐藏模型选择与「基于知识库」。 */
+const QUICK_ACTIONS: {
+  key: string
+  label: string
+  icon: LucideIcon
+  choice: ModelChoice
+  placeholder: string
+}[] = [
+  {
+    key: 'write',
+    label: '帮我写作',
+    icon: PenLine,
+    choice: { provider: 'deepseek', depth: 'fast' },
+    placeholder: '描述写作主题与要求，AI 将为你成文…'
+  },
+  {
+    key: 'translate',
+    label: '内容翻译',
+    icon: Languages,
+    choice: { provider: 'deepseek', depth: 'fast' },
+    placeholder: '粘贴待翻译内容，或注明目标语言…'
+  },
+  {
+    key: 'summarize',
+    label: '文档总结',
+    icon: FileText,
+    choice: { provider: 'deepseek', depth: 'fast' },
+    placeholder: '粘贴或上传文档，AI 将提炼要点…'
+  },
+  {
+    key: 'image',
+    label: '图片生成',
+    icon: Image,
+    choice: { provider: 'qwen', depth: 'fast' },
+    placeholder: '描述想生成的图片画面，AI 将为你绘图…'
+  }
 ]
+
+/** 模型名展示（激活快捷能力时在标签上提示固定模型）：只显示 DeepSeek/Qwen，不显示档位 */
+function modelLabel(c: ModelChoice): string {
+  return c.provider === 'qwen' ? 'Qwen' : 'DeepSeek'
+}
 
 /** 附件类型白名单（与 sidecar 端一致）与体积上限（100MB） */
 const ALLOWED_EXTENSIONS = new Set(['pdf', 'docx', 'xlsx', 'txt', 'md', 'html', 'png', 'jpg', 'jpeg'])
@@ -61,6 +102,12 @@ interface ChatInputProps {
   onUpload?: (file: File) => void
   onRemoveAttachment?: (id: string) => void
   uploadError?: string | null
+  /** 当前会话是否有历史内容（无内容时「整理文档」按钮禁用） */
+  hasHistory?: boolean
+  /** @organize 保存结果（非空时输入区显示反馈条） */
+  organizeResult?: OrganizeResult | null
+  /** 关闭保存结果反馈条 */
+  onDismissOrganize?: () => void
 }
 
 /**
@@ -76,7 +123,10 @@ export function ChatInput({
   attachments = [],
   onUpload = () => {},
   onRemoveAttachment = () => {},
-  uploadError = null
+  uploadError = null,
+  hasHistory = false,
+  organizeResult = null,
+  onDismissOrganize = () => {}
 }: ChatInputProps) {
   const [text, setText] = useState('')
   const [choice, setChoice] = useState<ModelChoice>({ provider: 'deepseek', depth: 'fast' })
@@ -87,7 +137,14 @@ export function ChatInput({
   const [kbId, setKbId] = useState<string | null>(null)
   const [showKbMenu, setShowKbMenu] = useState(false)
   const [showMore, setShowMore] = useState(false)
+  /** 「整理文档」三步浮层（确认 → 选路径/文件名 → 覆盖确认） */
+  const [organizeOpen, setOrganizeOpen] = useState(false)
+  /** 当前激活的快捷能力（帮我写作/内容翻译/文档总结/图片生成），null=普通模式 */
+  const [activeAction, setActiveAction] = useState<(typeof QUICK_ACTIONS)[number] | null>(null)
+  /** 进入快捷能力前的模型选择，退出时恢复 */
+  const [prevChoice, setPrevChoice] = useState<ModelChoice>({ provider: 'deepseek', depth: 'fast' })
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
   const ready = status === 'ready'
   const kbReady = !kbEnabled || !!kbId
@@ -141,13 +198,33 @@ export function ChatInput({
 
   const handleSend = (): void => {
     if (!canSend) return
-    onSend(text, choice, { enabled: kbEnabled, kbId: kbId ?? undefined })
+    // 快捷能力模式：选项名称作为提示词前缀注入发送内容（不加【】），输入框不预填该前缀
+    const message = activeAction ? `${activeAction.label}：${text}` : text
+    onSend(message, choice, { enabled: kbEnabled, kbId: kbId ?? undefined })
     setText('')
   }
 
-  // 快捷能力按钮：当前为前端占位，点击暂无行为
-  const handleQuickAction = (_key: string): void => {
-    // TODO: 接入 sidecar 对应能力（写作/翻译/总结/图片生成）
+  // 退出快捷能力模式：恢复用户原先的模型选择（模型选择/基于知识库重新显示）
+  const exitQuickAction = (): void => {
+    setActiveAction(null)
+    setChoice(prevChoice)
+  }
+
+  // 快捷能力按钮：激活后固定模型、隐藏模型选择与「基于知识库」，不预填输入框，
+  // 发送时由 handleSend 把选项名称作为提示词前缀注入；再次点击同一项 = 退出
+  const handleQuickAction = (key: string): void => {
+    const action = QUICK_ACTIONS.find((a) => a.key === key)
+    if (!action || !ready) return
+    if (activeAction?.key === key) {
+      exitQuickAction()
+      return
+    }
+    if (!activeAction) setPrevChoice(choice) // 仅从普通模式进入时记录原选择
+    setActiveAction(action)
+    setChoice(action.choice)
+    setKbEnabled(false)
+    setShowMore(false)
+    textAreaRef.current?.focus()
   }
 
   // 上传文件：白名单扩展名 + ≤100MB 校验，合法则交 useChat.upload 上传并落盘
@@ -181,9 +258,11 @@ export function ChatInput({
     ? '正在生成…'
     : !ready
       ? 'AI 引擎启动中…'
-      : kbEnabled
-        ? '基于知识库提问，回答将标注引用…'
-        : '向 NA 提问…'
+      : activeAction
+        ? activeAction.placeholder
+        : kbEnabled
+          ? '基于知识库提问，回答将标注引用…'
+          : '向 NA 提问…'
 
   return (
     <div className="w-[62%] max-w-2xl min-w-[340px]">
@@ -224,8 +303,53 @@ export function ChatInput({
         {kbEnabled && !kbId && (
           <p className="mb-2 text-xs text-amber-600">已开启「基于知识库」，请选择要检索的知识库</p>
         )}
+        {/* @organize 保存结果反馈条 */}
+        {organizeResult && (
+          <div
+            className={cn(
+              'mb-2 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs',
+              organizeResult.ok
+                ? 'border-green-200 bg-green-50 text-green-700'
+                : 'border-red-200 bg-red-50 text-red-600'
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {organizeResult.ok
+                ? `已保存到 ${organizeResult.relPath}`
+                : `保存失败：${organizeResult.error ?? '未知错误'}`}
+            </span>
+            <button
+              type="button"
+              onClick={onDismissOrganize}
+              title="关闭提示"
+              className="rounded p-0.5 transition-colors hover:bg-white/60"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        {/* 快捷能力激活标签：提示当前模式与固定模型，可一键退出 */}
+        {activeAction && (
+          <div className="mb-2 flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 rounded-lg border border-green-100 bg-green-50 py-1 pl-2 pr-1 text-xs text-green-700">
+              <span>
+                {activeAction.label} · {modelLabel(activeAction.choice)}
+              </span>
+              <button
+                type="button"
+                onClick={exitQuickAction}
+                title={`退出${activeAction.label}`}
+                className="rounded p-0.5 transition-colors hover:bg-green-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        )}
 
         <textarea
+          ref={textAreaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -238,7 +362,13 @@ export function ChatInput({
         <div className="flex flex-wrap items-center justify-between gap-1 border-t border-gray-100 pt-2">
           {/* 左组：模型选择 + 上传 + 基于知识库开关 (+ 知识库下拉) */}
           <div className="flex flex-wrap items-center gap-1">
-            <ModelSelector value={choice} onChange={setChoice} hasImages={attachments.some((a) => isImage(a.name))} />
+            {!activeAction && (
+              <ModelSelector
+                value={choice}
+                onChange={setChoice}
+                hasImages={attachments.some((a) => isImage(a.name))}
+              />
+            )}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -248,36 +378,38 @@ export function ChatInput({
               <Plus className="h-[18px] w-[18px]" />
             </button>
 
-            {/* 「基于知识库」开关 */}
-            <button
-              type="button"
-              onClick={() => setKbEnabled((v) => !v)}
-              title="基于知识库提问（纯知识库问答，回答带引用标注）"
-              className={cn(
-                'flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors',
-                kbEnabled
-                  ? 'bg-green-50 text-green-700'
-                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-              )}
-            >
-              <span
+            {/* 「基于知识库」开关（快捷能力激活时隐藏） */}
+            {!activeAction && (
+              <button
+                type="button"
+                onClick={() => setKbEnabled((v) => !v)}
+                title="基于知识库提问（纯知识库问答，回答带引用标注）"
                 className={cn(
-                  'relative h-4 w-7 rounded-full transition-colors',
-                  kbEnabled ? 'bg-green-500' : 'bg-gray-300'
+                  'flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors',
+                  kbEnabled
+                    ? 'bg-green-50 text-green-700'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                 )}
               >
                 <span
                   className={cn(
-                    'absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all',
-                    kbEnabled ? 'left-3.5' : 'left-0.5'
+                    'relative h-4 w-7 rounded-full transition-colors',
+                    kbEnabled ? 'bg-green-500' : 'bg-gray-300'
                   )}
-                />
-              </span>
-              基于知识库
-            </button>
+                >
+                  <span
+                    className={cn(
+                      'absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all',
+                      kbEnabled ? 'left-3.5' : 'left-0.5'
+                    )}
+                  />
+                </span>
+                基于知识库
+              </button>
+            )}
 
-            {/* 知识库选择下拉（开关开启时显示） */}
-            {kbEnabled && (
+            {/* 知识库选择下拉（开关开启时显示；快捷能力激活时隐藏） */}
+            {!activeAction && kbEnabled && (
               <div className="relative">
                 <button
                   type="button"
@@ -344,6 +476,25 @@ export function ChatInput({
                 )}
               </div>
             )}
+
+            {/* 「整理文档」（基于知识库右侧；快捷能力激活时隐藏；无历史/发送中禁用） */}
+            {!activeAction && (
+              <button
+                type="button"
+                onClick={() => setOrganizeOpen(true)}
+                disabled={!ready || !hasHistory || sending}
+                title={hasHistory ? '将本次对话整理为文档并保存到文件库' : '当前会话暂无内容，无法整理'}
+                className={cn(
+                  'flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors',
+                  !hasHistory || sending
+                    ? 'cursor-not-allowed text-gray-300'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                )}
+              >
+                <FileOutput className="h-3.5 w-3.5 text-gray-400" />
+                整理文档
+              </button>
+            )}
           </div>
 
           {/* 右组：更多（开关关闭时显示）+ 发送/停止 */}
@@ -364,20 +515,26 @@ export function ChatInput({
                   更多
                 </button>
                 {showMore && (
-                  <div className="absolute bottom-10 right-0 z-20 w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  <div className="absolute bottom-10 right-0 z-20 w-40 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                     {QUICK_ACTIONS.map(({ key, label, icon: Icon }) => (
                       <button
                         key={key}
                         type="button"
-                        onClick={() => {
-                          setShowMore(false)
-                          handleQuickAction(key)
-                        }}
+                        onClick={() => handleQuickAction(key)}
                         disabled={!ready}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300"
+                        className={cn(
+                          'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300',
+                          activeAction?.key === key ? 'text-green-700' : 'text-gray-700'
+                        )}
                       >
-                        <Icon className="h-3.5 w-3.5 text-gray-400" />
-                        {label}
+                        <Icon
+                          className={cn(
+                            'h-3.5 w-3.5',
+                            activeAction?.key === key ? 'text-green-600' : 'text-gray-400'
+                          )}
+                        />
+                        <span className="flex-1">{label}</span>
+                        {activeAction?.key === key && <Check className="h-3.5 w-3.5 text-green-600" />}
                       </button>
                     ))}
                   </div>
@@ -412,6 +569,17 @@ export function ChatInput({
         multiple
         onChange={handleFileChange}
       />
+
+      {/* 「整理文档」三步浮层：确认 → 选路径/文件名 → 覆盖确认；确认后发 @organize <相对路径> */}
+      {organizeOpen && (
+        <OrganizeDialog
+          onClose={() => setOrganizeOpen(false)}
+          onSubmit={(relPath) => {
+            setOrganizeOpen(false)
+            onSend(`@organize ${relPath}`, choice, { enabled: false })
+          }}
+        />
+      )}
     </div>
   )
 }

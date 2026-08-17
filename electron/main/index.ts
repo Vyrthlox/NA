@@ -266,6 +266,16 @@ app.whenReady().then(() => {
       return { ok: true }
     }
   )
+  // 写入 AI 整理的文档（@organize 落盘）：创建或覆盖，父目录自动创建
+  ipcMain.handle(
+    'library:write-organize',
+    async (_event, payload: { relPath?: string; content?: string }) => {
+      const p = (payload?.relPath ?? '').trim()
+      if (!p) throw new Error('缺少路径')
+      if (typeof payload?.content !== 'string') throw new Error('内容格式无效')
+      return library.writeDocument(p, payload.content)
+    }
+  )
 
   createWindow()
 

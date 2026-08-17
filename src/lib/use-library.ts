@@ -8,7 +8,7 @@ export interface UseLibrary {
   refresh: () => void
   /** 新建文件夹；parent='' 表示根。成功返回新节点 */
   createFolder: (parent: string, name: string) => Promise<LibraryNode | null>
-  /** 新建文件（自动补 .md）；parent 为父文件夹相对路径。成功返回新节点 */
+  /** 新建文件（自动补 .html）；parent 为父文件夹相对路径。成功返回新节点 */
   createFile: (parent: string, name: string) => Promise<LibraryNode | null>
   /** 递归删除文件夹（含其中全部内容） */
   deleteFolder: (relPath: string) => Promise<void>
@@ -38,6 +38,14 @@ export function useLibrary(): UseLibrary {
 
   useEffect(() => {
     refresh()
+  }, [refresh])
+
+  // 监听外部写入（如「将对话整理为文档」通过 library:write-organize 直接落盘），
+  // 触发刷新让新文件立刻出现在文件库面板
+  useEffect(() => {
+    const onChanged = (): void => refresh()
+    window.addEventListener('library:changed', onChanged)
+    return () => window.removeEventListener('library:changed', onChanged)
   }, [refresh])
 
   const createFolder = useCallback(

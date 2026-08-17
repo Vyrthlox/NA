@@ -111,7 +111,10 @@ const api = {
     readFile: (relPath: string): Promise<unknown> => ipcRenderer.invoke('library:read-file', relPath),
     /** 写入文件内容（utf8 文本） */
     writeFile: (payload: { relPath: string; content: string }): Promise<unknown> =>
-      ipcRenderer.invoke('library:write-file', payload)
+      ipcRenderer.invoke('library:write-file', payload),
+    /** 写入 AI 整理的文档（创建或覆盖，父目录自动创建；TipTap 富文本 .html） */
+    writeOrganize: (payload: { relPath: string; content: string }): Promise<unknown> =>
+      ipcRenderer.invoke('library:write-organize', payload)
   }
 }
 

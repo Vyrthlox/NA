@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { markdownToTiptapHtml } from './markdown-to-tiptap'
 
 export interface ChatMessage {
   role: 'user' | 'assistant'
@@ -14,6 +15,22 @@ export interface KbSend {
   kbId?: string
 }
 
+/** @organize 文档整理落盘结果（保存成功后输入区显示反馈条） */
+export interface OrganizeResult {
+  ok: boolean
+  relPath: string
+  error?: string
+}
+
+/** @organize <相对路径> 命令：路径为应用内文件库相对路径（可含空格） */
+const ORGANIZE_RE = /^@organize\s+(.+)$/
+
+/** 剥离模型常见的整段 ```markdown ... ``` 围栏，只留文档正文 */
+function stripDocFence(content: string): string {
+  const m = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/s.exec(content.trim())
+  return m ? m[1].trim() + '\n' : content
+}
+
 export interface UseChat {
   /** sidecar 引擎状态（starting/ready/...），ready 前发送被禁用 */
   sidecarStatus: SidecarStatus
@@ -25,6 +42,10 @@ export interface UseChat {
   attachments: Attachment[]
   /** 上传失败时的错误提示（空串/正常时 null） */
   uploadError: string | null
+  /** @organize 文档整理落盘结果（null=无）；ok=false 时 error 为失败原因 */
+  organizeResult: OrganizeResult | null
+  /** 清除 organizeResult（关闭输入区的保存反馈条） */
+  clearOrganizeResult: () => void
   /** 发送消息：模型选择（provider 提供商 × depth 档位），未传则默认 deepseek·fast；kb 开启「基于知识库」时走纯知识库问答 */
   send: (text: string, choice?: ModelChoice, kb?: KbSend) => void
   stop: () => void
@@ -49,8 +70,11 @@ export function useChat(): UseChat {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [organizeResult, setOrganizeResult] = useState<OrganizeResult | null>(null)
   const conversationIdRef = useRef<string | null>(null)
   const streamingRef = useRef(false)
+  /** 当前待落盘的 @organize 目标（done 事件带 reply 时写文件），随发送/结束清空 */
+  const organizePendingRef = useRef<{ conversationId: string; relPath: string } | null>(null)
 
   // 订阅 sidecar 引擎状态
   useEffect(() => {
@@ -73,9 +97,39 @@ export function useChat(): UseChat {
       } else if (ev.type === 'done') {
         streamingRef.current = false
         setStreaming(false)
+        // @organize 收尾：done 携带完整 reply，转成 TipTap 富文本 HTML 写入目标文件（创建或覆盖）
+        const pending = organizePendingRef.current
+        if (pending && pending.conversationId === ev.conversationId) {
+          organizePendingRef.current = null
+          const reply = (ev.data as { reply?: string }).reply ?? ''
+          const relPath = pending.relPath
+          const body = stripDocFence(reply)
+          void (async () => {
+            const content = await markdownToTiptapHtml(body)
+            await window.api.library.writeOrganize({ relPath, content })
+          })()
+            .then(() => {
+              // 通知文件库面板刷新，让新文档立刻出现
+              window.dispatchEvent(new Event('library:changed'))
+              setOrganizeResult({ ok: true, relPath })
+            })
+            .catch((err: unknown) => {
+              setOrganizeResult({
+                ok: false,
+                relPath,
+                error: err instanceof Error ? err.message : String(err)
+              })
+            })
+        }
       } else if (ev.type === 'error') {
         streamingRef.current = false
         setStreaming(false)
+        // 流中途失败：清掉待落盘目标，并把失败反馈给输入区
+        if (organizePendingRef.current) {
+          const pending = organizePendingRef.current
+          organizePendingRef.current = null
+          setOrganizeResult({ ok: false, relPath: pending.relPath, error: ev.data.error })
+        }
         setMessages((prev) => {
           const last = prev[prev.length - 1]
           const errText = `[错误] ${ev.data.error}`
@@ -92,13 +146,17 @@ export function useChat(): UseChat {
     (text: string, choice?: ModelChoice, kb?: KbSend): void => {
       const message = text.trim()
       if (!message || streamingRef.current || sidecarStatus !== 'ready') return
-      const useKb = !!kb?.enabled && !!kb?.kbId
       if (!conversationIdRef.current) {
         conversationIdRef.current = crypto.randomUUID()
         setConversationId(conversationIdRef.current)
       }
       const conversationId = conversationIdRef.current
-      // 本消息附带的附件 id（sidecar 读取文件内容注入上下文）
+      // @organize <路径>：应用内命令，把模型回复保存到目标文件；KB 开关不参与
+      const organizeMatch = ORGANIZE_RE.exec(message)
+      const organizeTarget = organizeMatch ? organizeMatch[1].trim() : null
+      organizePendingRef.current = organizeTarget ? { conversationId, relPath: organizeTarget } : null
+      const useKb = !organizeTarget && !!kb?.enabled && !!kb?.kbId
+      // 本消息附带的附件 id（sidecar 读取文件内容注入上下文；@organize 时随命令一起整理）
       const attachmentIds = attachments.map((a) => a.id)
       streamingRef.current = true
       setStreaming(true)
@@ -155,6 +213,10 @@ export function useChat(): UseChat {
         .catch((err: unknown) => {
           streamingRef.current = false
           setStreaming(false)
+          // 发起即失败：不会再有 done，清掉待落盘目标，避免污染下一次 done
+          if (organizePendingRef.current) {
+            organizePendingRef.current = null
+          }
           setMessages((prev) => [
             ...prev,
             { role: 'assistant', content: `[错误] ${String(err)}`, error: true }
@@ -167,8 +229,14 @@ export function useChat(): UseChat {
   const stop = useCallback((): void => {
     streamingRef.current = false
     setStreaming(false)
+    // 主动停止：不会有 done，清掉待落盘目标
+    organizePendingRef.current = null
     const conversationId = conversationIdRef.current
     if (conversationId) void window.api.chat.stop(conversationId)
+  }, [])
+
+  const clearOrganizeResult = useCallback((): void => {
+    setOrganizeResult(null)
   }, [])
 
   const upload = useCallback(async (file: File): Promise<void> => {
@@ -204,6 +272,8 @@ export function useChat(): UseChat {
     setConversationId(id)
     setStreaming(false)
     streamingRef.current = false
+    organizePendingRef.current = null
+    setOrganizeResult(null)
     setAttachments([])
     try {
       const data = await window.api.conversations.get(id)
@@ -229,6 +299,8 @@ export function useChat(): UseChat {
     setConversationId(null)
     setStreaming(false)
     streamingRef.current = false
+    organizePendingRef.current = null
+    setOrganizeResult(null)
     setMessages([])
     setAttachments([])
   }, [])
@@ -240,6 +312,8 @@ export function useChat(): UseChat {
     conversationId,
     attachments,
     uploadError,
+    organizeResult,
+    clearOrganizeResult,
     send,
     stop,
     upload,

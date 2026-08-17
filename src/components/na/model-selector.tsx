@@ -46,7 +46,6 @@ export function ModelSelector({ value, onChange, hasImages = false }: ModelSelec
   }, [open])
 
   const provider = PROVIDERS.find((p) => p.key === value.provider)!
-  const depth = DEPTHS.find((d) => d.key === value.depth)!
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -60,8 +59,6 @@ export function ModelSelector({ value, onChange, hasImages = false }: ModelSelec
       >
         <span className={cn('font-semibold', provider.badgeClass)}>{provider.badge}</span>
         {provider.label}
-        <span className="text-gray-300">·</span>
-        {depth.label}
         {hasImages && <ImageIcon className="h-3 w-3 text-violet-500" />}
         <ChevronDown
           className={cn('h-3.5 w-3.5 text-gray-400 transition-transform', open && 'rotate-180')}

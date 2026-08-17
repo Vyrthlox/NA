@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
@@ -45,6 +46,9 @@ def chat():
     message = (payload.get("message") or "").strip()
     if not message:
         return jsonify({"error": "message 不能为空"}), 400
+
+    # 应用内命令：@organize <路径> = 将对话整理为文档（走专用收尾，不做拆卸/记忆沉降）
+    is_organize = bool(re.match(r"^@organize\s+", message))
 
     # 模型选择：provider（deepseek/qwen，默认 deepseek）× 深度档位（fast/deep，默认 fast）
     provider = payload.get("provider") or "deepseek"
@@ -117,14 +121,18 @@ def chat():
                 yield _sse("error", {"error": str(e)})
                 return
             reply = "".join(parts)
-            cm.finalize_turn(message, reply, current_dismantled)
-            # 每轮完成后异步沉降长期记忆（不阻塞流式；失败仅记录）
-            svc = current_app.config.get("MEMORY_SERVICE")
-            if svc and svc.enabled:
-                try:
-                    svc.enqueue_extraction(cm.conversation_id, cm.turns[-1].seq)
-                except Exception as e:
-                    current_app.logger.warning("memory enqueue failed: %s", e)
+            if is_organize:
+                # 文档整理轮：跳过 LLM 拆卸与记忆沉降（正文可能很长），仅落盘历史
+                cm.finalize_organize_turn(message, reply)
+            else:
+                cm.finalize_turn(message, reply, current_dismantled)
+                # 每轮完成后异步沉降长期记忆（不阻塞流式；失败仅记录）
+                svc = current_app.config.get("MEMORY_SERVICE")
+                if svc and svc.enabled:
+                    try:
+                        svc.enqueue_extraction(cm.conversation_id, cm.turns[-1].seq)
+                    except Exception as e:
+                        current_app.logger.warning("memory enqueue failed: %s", e)
             yield _sse(
                 "done",
                 {

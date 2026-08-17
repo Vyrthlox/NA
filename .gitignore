@@ -5,5 +5,7 @@ dist/
 .DS_Store
 # sidecar 运行时数据（逐对话 JSON）
 data/
-temp/.env
+# CDP 冒烟脚本/截图等临时产物
+temp/
+*.tsbuildinfo
 .claude/

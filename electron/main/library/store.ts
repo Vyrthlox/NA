@@ -1,4 +1,4 @@
-import { basename, isAbsolute, join, relative, resolve } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { promises as fsp } from 'fs'
 import { REPO_ROOT } from '../sidecar/config'
 
@@ -46,18 +46,20 @@ function resolveInRoot(relPath: string): string {
 
 /** 重名唯一化：存在则依次尝试「name (2)」「name (3)」… */
 async function uniquePath(dir: string, name: string): Promise<string> {
-  const exists = async (p: string): Promise<boolean> => {
-    try {
-      await fsp.access(p)
-      return true
-    } catch {
-      return false
-    }
-  }
-  if (!(await exists(join(dir, name)))) return join(dir, name)
+  if (!(await pathExists(join(dir, name)))) return join(dir, name)
   for (let n = 2; ; n++) {
     const candidate = join(dir, `${name} (${n})`)
-    if (!(await exists(candidate))) return candidate
+    if (!(await pathExists(candidate))) return candidate
+  }
+}
+
+/** 路径是否存在（access 不抛错即存在） */
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fsp.access(p)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -129,6 +131,23 @@ export async function writeFile(relPath: string, content: string): Promise<void>
   const st = await fsp.stat(abs)
   if (!st.isFile()) throw new Error('目标不是文件')
   await fsp.writeFile(abs, content, 'utf8')
+}
+
+/**
+ * 写入整理文档（创建或覆盖，utf8 文本）：
+ * 与 writeFile 不同，目标不要求已存在——用户选定路径后自动创建父目录并写文件；
+ * 扩展名由调用方决定（AI 整理的富文本文档默认 .html）。相对路径须落在 ROOT 内。
+ */
+export async function writeDocument(
+  relPath: string,
+  content: string
+): Promise<{ ok: boolean; relPath: string; created: boolean }> {
+  if (typeof content !== 'string') throw new Error('内容格式无效')
+  const abs = resolveInRoot(relPath)
+  const created = !(await pathExists(abs))
+  await fsp.mkdir(dirname(abs), { recursive: true })
+  await fsp.writeFile(abs, content, 'utf8')
+  return { ok: true, relPath, created }
 }
 
 /** 递归删除文件夹（含其中全部内容） */

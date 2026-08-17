@@ -289,3 +289,159 @@ body {
   pointer-events: none;
   color: #9ca3af;
 }
+
+/* ===== 笔记编辑器：图片（内嵌 base64） ===== */
+/* 宽度统一撑满内容列，高度按原图宽高比自动等比例缩放（height:auto 由浏览器按固有比计算）。
+   排除 .ProseMirror-separator：那是 ProseMirror 给内联节点放的 1px 光标标记，不能被撑满。 */
+.na-editor .ProseMirror img:not(.ProseMirror-separator) {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 0.6em auto;
+}
+/* 选中态描边（ProseMirror 给 atom 节点加 selectednode） */
+.na-editor .ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}
+
+/* ===== 笔记编辑器：公式（KaTeX，@tiptap/extension-mathematics NodeView） ===== */
+/* 行内/块级公式统一外壳：光标手型 + 悬停浅绿提示可点击编辑 */
+.na-editor .ProseMirror .tiptap-mathematics-render {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+.na-editor .ProseMirror .tiptap-mathematics-render--editable:hover {
+  background: rgba(22, 163, 74, 0.08);
+}
+/* 块级公式：独立成块、居中 */
+.na-editor .ProseMirror [data-type='block-math'] {
+  display: block;
+  margin: 0.6em 0;
+  text-align: center;
+}
+/* 块级公式内部 KaTeX 展示层横向滚动而不是撑破页面 */
+.na-editor .ProseMirror [data-type='block-math'] .katex-display {
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.1em 0;
+}
+/* 解析失败（latex 空/非法）时原样显示源码 */
+.na-editor .ProseMirror .tiptap-mathematics-render.block-math-error,
+.na-editor .ProseMirror .tiptap-mathematics-render.inline-math-error {
+  color: #dc2626;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+/* ===== 对话回复 Markdown 排版（react-markdown 输出的元素，气泡内） ===== */
+.na-md > :first-child {
+  margin-top: 0;
+}
+.na-md > :last-child {
+  margin-bottom: 0;
+}
+.na-md p {
+  margin: 0.4em 0;
+}
+.na-md h1,
+.na-md h2,
+.na-md h3,
+.na-md h4 {
+  color: #111827;
+  font-weight: 700;
+}
+.na-md h1 {
+  font-size: 1.45em;
+  margin: 0.9em 0 0.5em;
+}
+.na-md h2 {
+  font-size: 1.28em;
+  margin: 0.9em 0 0.5em;
+}
+.na-md h3 {
+  font-size: 1.1em;
+  margin: 0.8em 0 0.4em;
+}
+.na-md h4 {
+  font-size: 1em;
+  margin: 0.7em 0 0.4em;
+}
+.na-md ul,
+.na-md ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+.na-md ul {
+  list-style: disc;
+}
+.na-md ol {
+  list-style: decimal;
+}
+.na-md li {
+  margin: 0.2em 0;
+}
+.na-md li::marker {
+  color: #9ca3af;
+}
+.na-md blockquote {
+  margin: 0.6em 0;
+  border-left: 3px solid #d1d5db;
+  padding-left: 0.9em;
+  color: #6b7280;
+}
+.na-md code {
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.88em;
+}
+.na-md pre {
+  margin: 0.6em 0;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: #f3f4f6;
+  padding: 0.7em 0.9em;
+}
+.na-md pre code {
+  background: transparent;
+  padding: 0;
+}
+.na-md hr {
+  margin: 1em 0;
+  border: none;
+  border-top: 1px solid #e5e7eb;
+}
+.na-md a {
+  color: #16a34a;
+  text-decoration: underline;
+}
+.na-md img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+.na-md table {
+  margin: 0.6em 0;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.na-md th,
+.na-md td {
+  border: 1px solid #e5e7eb;
+  padding: 0.3em 0.7em;
+}
+.na-md th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+/* KaTeX 长公式（尤其 display 模式）横向滚动而不是撑破气泡 */
+.na-md .katex-display {
+  margin: 0.5em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.1em 0;
+}

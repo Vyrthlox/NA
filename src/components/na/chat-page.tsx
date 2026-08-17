@@ -26,6 +26,9 @@ export default function ChatPage() {
                 onUpload={chat.upload}
                 onRemoveAttachment={chat.removeAttachment}
                 uploadError={chat.uploadError}
+                hasHistory={chat.messages.length > 0}
+                organizeResult={chat.organizeResult}
+                onDismissOrganize={chat.clearOrganizeResult}
               />
             </div>
           </>
@@ -41,6 +44,9 @@ export default function ChatPage() {
               onUpload={chat.upload}
               onRemoveAttachment={chat.removeAttachment}
               uploadError={chat.uploadError}
+              hasHistory={chat.messages.length > 0}
+              organizeResult={chat.organizeResult}
+              onDismissOrganize={chat.clearOrganizeResult}
             />
           </div>
         )}

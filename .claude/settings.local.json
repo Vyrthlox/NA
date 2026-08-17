@@ -39,7 +39,24 @@
       "Bash(PYTHONIOENCODING=utf-8 python -m sidecar.scripts.self_test --dry-run --rounds 5 --data-dir temp/selftest-kbhist-ctx)",
       "Bash(PYTHONIOENCODING=utf-8 python -m sidecar.scripts.self_test_knowledge --data-dir temp/selftest-kbhist-kb)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:9333/json/list)",
-      "Bash(taskkill //PID 168452 //F)"
+      "Bash(taskkill //PID 168452 //F)",
+      "Bash(npm view *)",
+      "Bash(npm install *)",
+      "Bash(grep -nA 30 \"insertContentAt\\(options\\)\" node_modules/@tiptap/core/dist/index.js)",
+      "Bash(curl -s http://127.0.0.1:9333/json/list)",
+      "Bash(powershell -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.Name -match '\\\\''electron|python|node'\\\\'' } | ForEach-Object { $_.ProcessId.ToString\\(\\) + '\\\\'' | '\\\\'' + $_.Name + '\\\\'' | '\\\\'' + $_.CommandLine }')",
+      "Bash(powershell -NoProfile -Command \"Stop-Process -Id 299076,288024,298092,298284 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1\")",
+      "Bash(powershell -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.Name -match '\\\\''electron|python|node'\\\\'' -and $_.CommandLine -match '\\\\''9333|sidecar'\\\\'' } | ForEach-Object { $_.ProcessId.ToString\\(\\) + '\\\\'' | '\\\\'' + $_.Name }')",
+      "Bash(powershell -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.Name -match '\\\\''electron|python|node'\\\\'' } | ForEach-Object { $_.ProcessId.ToString\\(\\) + '\\\\'' | '\\\\'' + $_.Name + '\\\\'' | '\\\\'' + $_.CommandLine.Substring\\(0, [Math]::Min\\(80,$_.CommandLine.Length\\)\\) }')",
+      "Bash(tasklist)",
+      "Bash(wmic process *)",
+      "Bash(xargs grep -ln \"sendChat\")",
+      "Bash(curl -s http://localhost:9333/json/version)",
+      "Bash(curl -s http://localhost:9333/json)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(npx tsc *)",
+      "Bash(echo \"tsc exit: $?\")",
+      "Bash(grep -vE \"^\\\\s*\\(<|$\\)\")"
     ]
   }
 }

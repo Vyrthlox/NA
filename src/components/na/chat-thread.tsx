@@ -3,6 +3,7 @@ import { cn } from '../../lib/cn'
 import type { ChatMessage } from '../../lib/use-chat'
 import { CitationChips } from '../knowledge/citation-chips'
 import { ThinkingIndicator } from './thinking-indicator'
+import { MarkdownMessage } from './markdown-message'
 
 interface ChatThreadProps {
   messages: ChatMessage[]
@@ -37,7 +38,12 @@ export function ChatThread({ messages, streaming }: ChatThreadProps) {
                 m.error && 'border-red-200 text-red-600'
               )}
             >
-              <div className="whitespace-pre-wrap break-words">{m.content}</div>
+              {/* 用户消息/错误提示保持纯文本；assistant 消息按 Markdown 渲染（含公式） */}
+              {m.role === 'user' || m.error ? (
+                <div className="whitespace-pre-wrap break-words">{m.content}</div>
+              ) : (
+                <MarkdownMessage content={m.content} />
+              )}
               {/* 知识库问答引用来源 chips */}
               {m.role === 'assistant' && m.citations && m.citations.length > 0 && (
                 <CitationChips citations={m.citations} />

@@ -260,6 +260,11 @@ interface Window {
       readFile: (relPath: string) => Promise<{ content: string }>
       /** 写入文件内容（utf8 文本） */
       writeFile: (payload: { relPath: string; content: string }) => Promise<{ ok: boolean }>
+      /** 写入 AI 整理的文档（创建或覆盖，父目录自动创建；TipTap 富文本 .html） */
+      writeOrganize: (payload: {
+        relPath: string
+        content: string
+      }) => Promise<{ ok: boolean; relPath: string; created: boolean }>
     }
   }
 }
